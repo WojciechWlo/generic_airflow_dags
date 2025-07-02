@@ -1,0 +1,44 @@
+# Python cache and bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Airflow database files
+airflow.db
+airflow.db-journal
+airflow-db/
+
+# Airflow log files
+logs/
+*.log
+
+# Environment variables
+.env
+.env.*
+
+# Editor and IDE settings
+.vscode/
+.idea/
+*.swp
+*~
+*.bak
+
+# Temporary files and Docker volumes
+tmp/
+volumes/
+
+# DAG and plugin cache
+dags/__pycache__/
+dags/*.pyc
+plugins/
+plugins/__pycache__/
+plugins/*.pyc
+
+# Local config files
+config/
+
+# macOS system files
+.DS_Store
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
