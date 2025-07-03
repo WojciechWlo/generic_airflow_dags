@@ -41,8 +41,6 @@ def get_max_folder_name_from_dbo(ti):
     ti.xcom_push(key='max_folder_name', value=max_folder)
 
 def scan_and_insert(ti):
-    import shutil
-    import os
 
     # Get paths from XCom
     src, dst = ti.xcom_pull(task_ids='extract_event_gallery_paths')
