@@ -1,0 +1,11 @@
+{
+    "transfers":[
+        {
+            "name" : "event_gallery",
+            "paths" : {
+                "path_src":"/app_media_src", 
+                "path_dst":"/app_media_dst"
+            }
+        }
+    ]
+}

@@ -42,3 +42,5 @@ config/
 
 # Jupyter notebook checkpoints
 .ipynb_checkpoints/
+
+docker-compose_.yaml
