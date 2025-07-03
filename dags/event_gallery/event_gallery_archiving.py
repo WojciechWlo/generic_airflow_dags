@@ -74,6 +74,8 @@ def scan_and_insert(src, dst, max_folder):
 
             print(f"Folder {folder_name} copied to {dst_folder_path}")
 
+POSTGRES_CONN_ID = "postgres_custom"
+
 with DAG(
     dag_id='event_gallery_archiving',
     start_date=datetime(2025, 1, 1, 0, 0, 0, tzinfo=local_tz),
@@ -95,23 +97,23 @@ with DAG(
 
     truncate_staging_table_task = SQLExecuteQueryOperator(
         task_id='truncate_staging_table',
-        conn_id='postgres_custom',
+        conn_id=POSTGRES_CONN_ID,
         sql='TRUNCATE TABLE staging.event_gallery_files;',
     )
 
     scan_and_insert_task = PythonOperator(
         task_id="scan_and_insert_files",
         python_callable=scan_and_insert,
-        op_args=[
-            "{{ ti.xcom_pull(task_ids='extract_event_gallery_paths')[0] }}",  # src
-            "{{ ti.xcom_pull(task_ids='extract_event_gallery_paths')[1] }}",  # dst
-            "{{ ti.xcom_pull(task_ids='get_max_folder_name_from_dbo') }}"     # max_folder
-        ]
+        op_kwargs={
+            "src": "{{ ti.xcom_pull(task_ids='extract_event_gallery_paths')[0] }}",
+            "dst": "{{ ti.xcom_pull(task_ids='extract_event_gallery_paths')[1] }}",
+            "max_folder": "{{ ti.xcom_pull(task_ids='get_max_folder_name_from_dbo') }}"
+        }
     )
 
     call_migrate_proc_task = SQLExecuteQueryOperator(
         task_id='call_migrate_procedure',
-        conn_id='postgres_custom',
+        conn_id=POSTGRES_CONN_ID,
         sql='CALL staging.migrate_event_gallery_files();',
     )
 
