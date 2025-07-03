@@ -12,42 +12,33 @@ local_tz = timezone("Europe/Warsaw")
 
 JSON_PATH = os.path.join(os.path.dirname(__file__), 'transfers.json')
 
-def read_json():
+def extract_event_gallery_paths():
+    # Extract path_src and path_dst from transfers with name 'event_gallery'
     with open(JSON_PATH, 'r') as f:
         data = json.load(f)
-    return data
-
-def extract_event_gallery_paths(ti):
-    # Extract path_src and path_dst from transfers with name 'event_gallery'
-    data = ti.xcom_pull(task_ids='read_json')
-    transfers = data.get('transfers', [])
+    
+    transfers = data['transfers']
     for transfer in transfers:
-        if transfer.get('name') == 'event_gallery':
-            paths = transfer.get('paths', {})
-            path_src = paths.get('path_src')
-            path_dst = paths.get('path_dst')
+        if transfer['name'] == 'event_gallery':
+            paths = transfer['paths']
+            path_src = paths['path_src']
+            path_dst = paths['path_dst']
             if not path_src or not path_dst:
-                raise ValueError("Both 'path_src' and 'path_dst' must be defined in paths for event_gallery")
-            return (path_src, path_dst)
+                raise ValueError("Both 'path_src' and 'path_dst' must be defined")
+            return path_src, path_dst
     raise ValueError("No transfer with name 'event_gallery' found")
 
 
-def get_max_folder_name_from_dbo(ti):
-    # Connect to Postgres and get max folder name from dbo.event_gallery_files
+def get_max_folder_name_from_dbo():
     hook = PostgresHook(postgres_conn_id='postgres_custom')
     sql = "SELECT MAX(file_name) FROM dbo.event_gallery_files;"
     result = hook.get_first(sql)
-    max_folder = result[0] if result and result[0] else ''
-    ti.xcom_push(key='max_folder_name', value=max_folder)
+    return result[0] if result and result[0] else ''
 
-def scan_and_insert(ti):
+def scan_and_insert(src, dst, max_folder):
 
-    # Get paths from XCom
-    src, dst = ti.xcom_pull(task_ids='extract_event_gallery_paths')
-    max_folder = ti.xcom_pull(task_ids='get_max_folder_name_from_dbo', key='max_folder_name')
     hook = PostgresHook(postgres_conn_id='postgres_custom')
 
-    # Convert max_folder to string, empty means no folders yet
     max_folder = max_folder or ''
 
     if not os.path.exists(src):
@@ -57,37 +48,29 @@ def scan_and_insert(ti):
         os.makedirs(dst, exist_ok=True)
         os.chmod(dst, 0o777)
 
-    # Walk through first-level directories in src
     first_level_dirs = [d for d in os.listdir(src) if os.path.isdir(os.path.join(src, d))]
 
     for folder_name in first_level_dirs:
-        # Compare folder names lexicographically
         if folder_name > max_folder:
             folder_path = os.path.join(src, folder_name)
 
-            # Insert all files from this folder and subfolders into staging.event_gallery_files
             for root, dirs, files in os.walk(folder_path):
                 rel_path = os.path.relpath(root, src)
                 for file in files:
-                    file_name = file
                     insert_sql = """
                     INSERT INTO staging.event_gallery_files (file_name, path)
                     VALUES (%s, %s);
                     """
-                    hook.run(insert_sql, parameters=(file_name, rel_path))
+                    hook.run(insert_sql, parameters=(file, rel_path))
 
-            # Copy entire folder to dst preserving structure (safe method)
             dst_folder_path = os.path.join(dst, folder_name)
-
             for root, dirs, files in os.walk(folder_path):
                 rel_path = os.path.relpath(root, folder_path)
                 target_dir = os.path.join(dst_folder_path, rel_path)
                 os.makedirs(target_dir, exist_ok=True)
                 os.chmod(target_dir, 0o777)
                 for file in files:
-                    src_file = os.path.join(root, file)
-                    dst_file = os.path.join(target_dir, file)
-                    shutil.copy2(src_file, dst_file)
+                    shutil.copy2(os.path.join(root, file), os.path.join(target_dir, file))
 
             print(f"Folder {folder_name} copied to {dst_folder_path}")
 
@@ -99,30 +82,31 @@ with DAG(
     tags=['example'],
 ) as dag:
 
-    read_json_task = PythonOperator(
-        task_id='read_json',
-        python_callable=read_json,
-    )
 
     extract_paths_task = PythonOperator(
-        task_id='extract_event_gallery_paths',
+        task_id="extract_event_gallery_paths",
         python_callable=extract_event_gallery_paths,
     )
 
-    truncate_staging_table = SQLExecuteQueryOperator(
+    get_max_folder_name_task = PythonOperator(
+        task_id="get_max_folder_name_from_dbo",
+        python_callable=get_max_folder_name_from_dbo
+    )
+
+    truncate_staging_table_task = SQLExecuteQueryOperator(
         task_id='truncate_staging_table',
         conn_id='postgres_custom',
         sql='TRUNCATE TABLE staging.event_gallery_files;',
     )
 
-    get_max_folder_task = PythonOperator(
-        task_id='get_max_folder_name_from_dbo',
-        python_callable=get_max_folder_name_from_dbo,
-    )
-
     scan_and_insert_task = PythonOperator(
-        task_id='scan_and_insert_files',
+        task_id="scan_and_insert_files",
         python_callable=scan_and_insert,
+        op_args=[
+            "{{ ti.xcom_pull(task_ids='extract_event_gallery_paths')[0] }}",  # src
+            "{{ ti.xcom_pull(task_ids='extract_event_gallery_paths')[1] }}",  # dst
+            "{{ ti.xcom_pull(task_ids='get_max_folder_name_from_dbo') }}"     # max_folder
+        ]
     )
 
     call_migrate_proc_task = SQLExecuteQueryOperator(
@@ -132,5 +116,4 @@ with DAG(
     )
 
     # Define dependencies
-    read_json_task >> extract_paths_task >> truncate_staging_table
-    truncate_staging_table >> get_max_folder_task >> scan_and_insert_task >> call_migrate_proc_task
+    extract_paths_task >> truncate_staging_table_task >> get_max_folder_name_task >> scan_and_insert_task >> call_migrate_proc_task
