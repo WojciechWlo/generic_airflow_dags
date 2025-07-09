@@ -46,7 +46,6 @@ def scan_and_insert(src, dst, max_folder):
 
     if not os.path.exists(dst):
         os.makedirs(dst, exist_ok=True)
-        os.chmod(dst, 0o777)
 
     first_level_dirs = [d for d in os.listdir(src) if os.path.isdir(os.path.join(src, d))]
 
@@ -68,7 +67,6 @@ def scan_and_insert(src, dst, max_folder):
                 rel_path = os.path.relpath(root, folder_path)
                 target_dir = os.path.join(dst_folder_path, rel_path)
                 os.makedirs(target_dir, exist_ok=True)
-                os.chmod(target_dir, 0o777)
                 for file in files:
                     shutil.copy2(os.path.join(root, file), os.path.join(target_dir, file))
 
@@ -79,7 +77,7 @@ POSTGRES_CONN_ID = "postgres_custom"
 with DAG(
     dag_id='event_gallery_archiving',
     start_date=datetime(2025, 1, 1, 0, 0, 0, tzinfo=local_tz),
-    schedule='0 */6 * * *',
+    schedule='0 0 * * *',
     catchup=False,
     tags=['example'],
 ) as dag:
